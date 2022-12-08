@@ -1,79 +1,97 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-
-import path from 'path';
-import gulp from 'gulp';
-import es from 'event-stream';
+import { describe, it, expect } from 'vitest';
+import ObjectStream, { Transform } from 'o-stream';
+import sourcemaps from 'gulp-sourcemaps';
 import File from 'vinyl';
-import * as sourcemaps from 'gulp-sourcemaps';
-import miss from 'mississippi';
 
 import plugin from '../src';
 
-const fixtures = function (glob) { return path.join(__dirname, 'fixtures', glob); }
+const FILE_PATH = 'bundle.js';
+const FILE_MIN_PATH = 'bundle.min.js';
+const FILE_TEXT = 'class MyClass { constructor() { let asdf = 1; console.info(asdf); } }';
+const FILE_TEXT_UGLIFIED = 'class MyClass{constructor(){console.info(1)}}';
 
-describe('gulp-swc-minify', () => {
-  describe('in buffer mode', () => {
-    let fakeFile: File;
-    beforeEach(() => {
-      fakeFile = new File({
-        contents: Buffer.from('class MyClass { constructor() { let asdf = 1; console.info(asdf); } }')
-      });
-    });
+describe('should ok', () => {
+  it('When recieves a valid file, then uglify it.', async () => {
+    let stream = plugin();
+    let file = createGulpTextFile(FILE_TEXT);
 
-    it('should works', () => {
-      // Create a prefixer plugin stream
-      const myPrefixer = plugin();
+    stream.write(file);
+    let actual = (await stream[Symbol.asyncIterator]().next()).value;
 
-      // write the fake file to it
-      myPrefixer.write(fakeFile);
+    expect(stream.read()).toBeNull();
+    expect(actual.contents.toString()).toEqual(FILE_TEXT_UGLIFIED);
+  });
 
-      // wait for the file to come back out
-      myPrefixer.once('data', function (file) {
-        // make sure it came out the same way it went in
-        expect(file.isBuffer()).toBeTruthy();
+  it('When recieves a file without contents, then pass through.', () => {
+    let stream = plugin();
+    let file = new File({ path: FILE_PATH, contents: null });
 
-        // check the contents
-        expect(file.contents.toString('utf8')).toBe('class MyClass{constructor(){console.info(1)}}');
-      });
-    });
+    stream.write(file);
+    let actual = stream.read();
 
-    it('should works with sourcemap', () => {
-      fakeFile = new File({
-        contents: es.readArray(['class MyClass { constructor() { let asdf = 1; console.info(asdf); } }'])
-      });
+    expect(stream.read()).toBeNull();
+    expect(actual).toEqual(file);
+  });
 
-      // Create a prefixer plugin stream
-      const myPrefixer = plugin();
+})
 
-      // write the fake file to it
-      myPrefixer.write(fakeFile);
+describe('When created with source-map', () => {
+  it('Test source maps are created in external file.', async () => {
+    let inStream = ObjectStream.transform({});
 
-      // wait for the file to come back out
-      myPrefixer.once('data', function (file) {
-        // make sure it came out the same way it went in
-        expect(file.isBuffer()).toBeTruthy();
+    let outStream = inStream
+      .pipe(sourcemaps.init())
+      .pipe(plugin())
+      .pipe(sourcemaps.write('./maps'));
 
-        // check the contents
-        expect(file.contents.toString('utf8')).toBe('class MyClass{constructor(){console.info(1)}}');
-      });
+    let file = createGulpTextFile(FILE_TEXT);
 
-      function assert(results) {
-        var data = results[0];
-        expect(data.sourceMap).not.toBeUndefined();
-        expect(data.contents.toString()).toEqual('class MyClass{constructor(){console.info(1)}}' + '\n//# sourceMappingURL=' + base64JSON(data.sourceMap) + '\n');
-      }
-  
-      miss.pipe([
-        fakeFile.contents,
-        sourcemaps.init(),
-        plugin(),
-        sourcemaps.write(),
-        miss.concat(assert),
-      ]);
-    });
+    inStream.write(file);
+    await delayForUglifyToFinish();
+
+    let mapFile = outStream.read() as any;
+    let actual = outStream.read() as any;
+
+    const sourceMapString = '\n//# sourceMappingURL=maps/bundle.min.js.map\n';
+    expect(outStream.read()).toBeNull();
+    expect(actual.contents.toString()).toEqual(FILE_TEXT_UGLIFIED + sourceMapString);
+
+    let map = JSON.parse(mapFile.contents.toString());
+    // console.log(map);
+    expect(map.sources[0]).toEqual(FILE_MIN_PATH);
+    expect(map.mappings.length).toBeGreaterThan(0);
+    expect(map.file).toEqual('../' + FILE_MIN_PATH);
+    expect(map.sourcesContent[0]).toEqual(FILE_TEXT);
+  });
+
+  it('Test source maps are created inline.', async () => {
+    let inStream = ObjectStream.transform({});
+
+    let outStream = inStream
+      .pipe(sourcemaps.init())
+      .pipe(plugin())
+      .pipe(sourcemaps.write()) as Transform;
+
+    let file = createGulpTextFile(FILE_TEXT);
+
+    inStream.write(file);
+    await delayForUglifyToFinish();
+    let actual: File = outStream.read();
+
+    const sourceMapString = '\n//# sourceMappingURL=data:application/json;charset=utf8;base64';
+    expect(outStream.read()).toBeNull();
+    expect(actual.contents!.toString().startsWith(FILE_TEXT_UGLIFIED + sourceMapString)).to.true;
   });
 });
 
-function base64JSON(obj: object) {
-  return 'data:application/json;charset=utf8;base64,' + Buffer.from(JSON.stringify(obj)).toString('base64');
+function createGulpTextFile(text: string): File {
+  return new File({
+    path: FILE_MIN_PATH,
+    contents: Buffer.from(text)
+  });
+}
+
+async function delayForUglifyToFinish(): Promise<void> {
+  for (let i = 0; i < 3; i++)
+    await new Promise((resolve) => setTimeout(resolve, 1));
 }
