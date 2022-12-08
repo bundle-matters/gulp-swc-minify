@@ -1,10 +1,9 @@
-// through2 is a thin wrapper around node transform streams
-import through from 'through2';
 import PluginError from 'plugin-error';
 import * as File from 'vinyl';
 import * as swc from '@swc/core';
-import applySourceMap from 'vinyl-sourcemaps-apply';
-import ObjectStream, { EnteredArgs, Transform } from 'o-stream';
+import ObjectStream, { EnteredArgs } from 'o-stream';
+
+const applySourceMap = require('vinyl-sourcemaps-apply');
 
 // Consts
 const PLUGIN_NAME = 'gulp-swc-minify';
