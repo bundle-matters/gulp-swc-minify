@@ -13,7 +13,7 @@ export default function plugin(swcMinifyOptions: swc.JsMinifyOptions = {}) {
   // Creating a stream through which each file will pass
   return through.obj(async function(file: File, enc: BufferEncoding, cb) {
     if (file.isStream()) {
-      throw new PluginError(PLUGIN_NAME, 'Streams are not supported.');
+      throw new PluginError(PLUGIN_NAME, 'Do not support streams.');
     }
 
     if (file.isNull() || !file.contents) {
@@ -33,16 +33,18 @@ export default function plugin(swcMinifyOptions: swc.JsMinifyOptions = {}) {
         file.contents = Buffer.from(result.code);
   
         if (file.map && result.map) {
-          const map = wrapSouceMap(result.map);
-          applySourceMap(file, JSON.stringify(map));
+          const sourcemap = generateSourceMap(result.map);
+          applySourceMap(file, JSON.stringify(sourcemap));
         }
   
-        function wrapSouceMap(mapStr: string) {
-          // make swc sourcemap to work with vinyl sourcemap
+        function generateSourceMap(mapStr: string) {
           const map = JSON.parse(mapStr);
+          // make swc sourcemap to work with vinyl sourcemap
+          // vinyl-sourcemaps-apply/index.js:15
           map.file = file.relative;
           map.sources = [file.relative];
           map.sourcesContent = [sourcesContent];
+          return map;
         }
       } catch (error) {
         throw new PluginError(PLUGIN_NAME, error as Error);
