@@ -33,7 +33,7 @@ export default function plugin(swcMinifyOptions: swc.JsMinifyOptions = {}) {
           let result = swc.minifySync(file.contents.toString(), swcMinifyOptions);
           file.contents = Buffer.from(result.code);
     
-          if (result.map) {
+          if (file.sourceMap && result.map) {
             const sourcemap = generateSourceMap(result.map);
             applySourceMap(file, JSON.stringify(sourcemap));
           }
